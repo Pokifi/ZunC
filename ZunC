@@ -1,0 +1,8 @@
+local allowedGameId = 119031451367172
+
+if game.PlaceId == allowedGameId then
+    print("\27[32m[✅ SUCCESS] Script executed for supported game.\27[0m")
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Pokifi/ZunCHub/refs/heads/main/Stud-Simulator-BETA.txt"))()
+else
+    print("\27[31m[❌ ERROR] Game ID not supported.\27[0m")
+end
