@@ -1,315 +1,105 @@
---[[
-🔒 KilluaLib 5.0 - Luau Executor Edition
-- Adaptado para Luau (executors)
-- Suporta carregar strings com ambiente seguro (load/loadstring fallback)
-- Não usa getfenv/setfenv (inexistentes em Luau)
-- Fallbacks para bitxor / unpack
-- Proteção contra debug / ofuscação de chamadas
-]]
+-- ASCIILib.lua
+-- Biblioteca simples para converter texto em ASCII (decimal/binário/hex)
+-- e enviar o resultado para um webhook (JSON, estilo Discord).
 
--- Inicialização única
-if shared.__KILLUA_V5_LOADED then
-    return shared.__KILLUA_V5_INSTANCE
-end
-shared.__KILLUA_V5_LOADED = true
+local HttpService = game:GetService("HttpService")
 
--- Utilitários com fallbacks
-local _U = {
-    chr = string.char,
-    concat = table.concat,
-    random = math.random,
-    type = type,
-    pcall = pcall,
-    setmetatable = setmetatable,
-    getmetatable = getmetatable,
-    rawget = rawget,
-    rawset = rawset,
-    assert = assert,
-    error = error,
-    ipairs = ipairs,
-    pairs = pairs,
-    next = next,
-    tonumber = tonumber,
-    tostring = tostring,
-    select = select,
-    collectgarbage = collectgarbage,
-    osclock = os.clock
-}
-_U.unpack = table.unpack or unpack
+local ASCIILib = {}
 
--- XOR fallback (bit32 / bit / manual)
-local function fallback_xor(a, b)
-    if type(a) ~= "number" or type(b) ~= "number" then
-        return 0
-    end
-    if bit32 and bit32.bxor then
-        return bit32.bxor(a, b)
-    end
-    if bit and bit.bxor then
-        return bit.bxor(a, b)
-    end
-    -- manual 32-bit xor
-    local res = 0
-    local bitval = 1
-    for i = 1, 32 do
-        local abit = a % 2
-        local bbit = b % 2
-        if (abit ~= bbit) then
-            res = res + bitval
-        end
-        a = math.floor(a / 2)
-        b = math.floor(b / 2)
-        bitval = bitval * 2
-        if a == 0 and b == 0 then break end
-    end
-    return res
-end
-_U.xor = fallback_xor
-
--- Criptografia simples (XOR por byte)
-local function encrypt_string(str, key)
-    key = key or _U.random(1, 255)
-    local data = {}
-    for i = 1, #str do
-        local byte = str:byte(i)
-        data[i] = _U.xor(byte, (key + i) % 256)
-    end
-    return { data = data, key = key }
+-- converte um caractere para decimal ASCII
+local function charToDecimal(ch)
+	return string.byte(ch)
 end
 
-local function decrypt_string(encrypted)
-    if type(encrypted) ~= "table" or not encrypted.data or not encrypted.key then
-        return ""
-    end
-    local out = {}
-    for i, v in ipairs(encrypted.data) do
-        local b = _U.xor(v, (encrypted.key + i) % 256)
-        out[i] = _U.chr(b % 256)
-    end
-    return _U.concat(out, "")
+-- converte decimal para binário (string)
+local function decToBinary(num)
+	if num == 0 then return "0" end
+	local t = {}
+	while num > 0 do
+		table.insert(t, 1, tostring(num % 2))
+		num = math.floor(num / 2)
+	end
+	return table.concat(t)
 end
 
--- Strings criptografadas
-local _STRINGS = {
-    INIT_MSG = encrypt_string("KilluaLib 5.0 (Luau) initialized!", 123),
-    WARN_PREFIX = encrypt_string("KilluaSec:", 45),
-    DEBUG_DETECTED = encrypt_string("Debug environment detected", 67)
-}
-
--- Detectar ambiente de debug (não lança erros)
-local function check_debug_environment()
-    local checks = {
-        function()
-            if type(debug) == "table" and type(debug.getinfo) == "function" then
-                local ok = _U.pcall(function() return debug.getinfo(1) end)
-                return ok
-            end
-            return false
-        end,
-        function()
-            local ok = _U.pcall(function() return getmetatable(_G) end)
-            return ok
-        end,
-        function()
-            local ok = _U.pcall(function() return setmetatable({}, {}) end)
-            return ok
-        end
-    }
-
-    for _, test in ipairs(checks) do
-        local ok, res = _U.pcall(test)
-        if ok and res then
-            return true
-        end
-    end
-    return false
+-- converte decimal para hex (uppercase)
+local function decToHex(num)
+	return string.format("%X", num)
 end
 
--- Ofuscação de fluxo (varia a forma de chamar)
-local function obfuscated_call(fn, ...)
-    local args = { ... }
-    local mode = _U.random(1, 3)
-    if mode == 1 then
-        return fn(_U.unpack(args))
-    elseif mode == 2 then
-        local result
-        for _, a in ipairs(args) do
-            if result == nil then
-                result = a
-            else
-                local ok, r = _U.pcall(function() return fn(result, a) end)
-                if ok then result = r end
-            end
-        end
-        return result
-    else
-        local start = _U.osclock()
-        while _U.osclock() - start < 0.001 do end
-        return fn(_U.unpack(args))
-    end
+-- converte texto para uma tabela { {char=..., dec=..., bin=..., hex=...}, ... }
+function ASCIILib.textToASCIITable(text)
+	local out = {}
+	for i = 1, #text do
+		local ch = text:sub(i, i)
+		local dec = charToDecimal(ch) or 0
+		table.insert(out, {
+			char = ch,
+			dec = dec,
+			bin = decToBinary(dec),
+			hex = decToHex(dec),
+		})
+	end
+	return out
 end
 
--- Protege uma função (detecta debug e evita exposição)
-local function protect_function(fn, name)
-    name = name or "protected"
-    return function(...)
-        if check_debug_environment() then
-            _U.error(decrypt_string(_STRINGS.DEBUG_DETECTED))
-        end
-        return obfuscated_call(fn, ...)
-    end
+-- formata a tabela num string de saída dependendo do modo: "decimal", "binary", "hex", "mixed"
+-- separator é o separador entre valores (default " ")
+function ASCIILib.formatASCII(text, mode, separator)
+	mode = (mode or "decimal"):lower()
+	separator = separator or " "
+	local tbl = ASCIILib.textToASCIITable(text)
+	local parts = {}
+
+	if mode == "decimal" then
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	elseif mode == "binary" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.bin) end
+	elseif mode == "hex" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.hex) end
+	elseif mode == "mixed" then
+		-- ex: "v:118 (0b1110110) (0x76)"
+		for _,item in ipairs(tbl) do
+			table.insert(parts, string.format("%s:%s (0b%s) (0x%s)", item.char, tostring(item.dec), item.bin, item.hex))
+		end
+	else
+		-- se modo não reconhecido, retorna decimal por padrão
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	end
+
+	return table.concat(parts, separator)
 end
 
--- Guardar referências originais
-local _ORIGINAL = {
-    print = print,
-    warn = warn,
-    error = error,
-    assert = assert
-}
+-- envia para webhook. payloadOptions: {username=, avatar_url=, embeds= boolean}
+-- Se content for muito grande, corta para 1900 caracteres (segurança)
+function ASCIILib.sendWebhook(webhookUrl, content, payloadOptions)
+	if not webhookUrl or webhookUrl == "" then
+		return false, "webhookUrl vazio"
+	end
+	local opts = payloadOptions or {}
+	local data = {
+		content = content,
+		username = opts.username or "ASCIIBot",
+		avatar_url = opts.avatar_url,
+	}
 
--- Funções protegidas
-local _PROTECTED = {}
+	-- corta content se estiver gigante (evita erro do Discord)
+	if type(data.content) == "string" and #data.content > 1900 then
+		data.content = data.content:sub(1, 1900) .. "...(truncated)"
+	end
 
-_PROTECTED.print = protect_function(function(...)
-    local args = { ... }
-    table.insert(args, 1, decrypt_string(_STRINGS.WARN_PREFIX))
-    return _ORIGINAL.print(_U.unpack(args))
-end, "print")
+	local encoded = HttpService:JSONEncode(data)
 
-_PROTECTED.warn = protect_function(function(...)
-    return _ORIGINAL.warn(decrypt_string(_STRINGS.WARN_PREFIX), ...)
-end, "warn")
+	local ok, err = pcall(function()
+		-- usa PostAsync: (url, body, contentType)
+		HttpService:PostAsync(webhookUrl, encoded, Enum.HttpContentType.ApplicationJson)
+	end)
 
-_PROTECTED.error = protect_function(function(...)
-    return _ORIGINAL.error(...)
-end, "error")
+	if not ok then
+		return false, err
+	end
 
--- Instala hooks (substitui globais de forma segura)
-local function install_hooks()
-    for name, fn in pairs(_PROTECTED) do
-        local cur = rawget(_G, name)
-        if cur ~= fn then
-            rawset(_G, name, fn)
-        end
-    end
+	return true, "sent"
 end
 
--- Helper: carregar código string com ambiente seguro usando load/loadstring
-local function load_with_env(code, env)
-    -- prefer load (Lua 5.2+ / Luau): load(code, name, mode, env)
-    if type(load) == "function" then
-        local ok, loaded = _U.pcall(function()
-            -- alguns ambientes (executors) suportam a 4a parametro (env)
-            -- tentamos passar env; se falhar, tentamos sem env.
-            local f
-            local suc, res = _U.pcall(function() return load(code, "KilluaLib_chunk", "t", env) end)
-            if suc and type(res) == "function" then
-                return res
-            end
-            -- fallback sem env
-            f = load(code, "KilluaLib_chunk")
-            return f
-        end)
-        if ok and type(loaded) == "function" then
-            return loaded
-        end
-        return nil, "load failed"
-    end
-
-    -- fallback para loadstring (alguns executors ainda expõem)
-    if type(loadstring) == "function" then
-        local ok, f = _U.pcall(function() return loadstring(code) end)
-        if ok and type(f) == "function" then
-            -- tentar set env via debug.setupvalue se disponível (não garantido)
-            return f
-        end
-    end
-
-    return nil, "no loader available"
-end
-
--- API principal Killua (Luau-aware)
-local Killua = {
-    version = "5.0-luau"
-}
-
-function Killua:encrypt(data)
-    if type(data) ~= "string" then
-        data = tostring(data)
-    end
-    return encrypt_string(data)
-end
-
-function Killua:decrypt(encrypted)
-    return decrypt_string(encrypted)
-end
-
--- execute: aceita function ou string; strings são carregadas em um ambiente seguro (env)
-function Killua:execute(codeOrFn, ...)
-    -- build secure env: prioriza funções protegidas, cai para _G para outros
-    local secure_env = setmetatable({}, {
-        __index = function(_, k)
-            if _PROTECTED[k] then return _PROTECTED[k] end
-            return _G[k]
-        end,
-        __newindex = function(_, k, v)
-            -- escreve no _G por compatibilidade com executors
-            _G[k] = v
-        end
-    })
-
-    -- se for string: carregar com env e executar
-    if type(codeOrFn) == "string" then
-        local chunk, err = load_with_env(codeOrFn, secure_env)
-        if not chunk then
-            error("KilluaLib: failed to load code: " .. tostring(err))
-        end
-        -- se load retornou função sem aplicar env, tentamos setar _ENV via upvalue (se possível)
-        -- tentar definir _ENV com debug.setupvalue (Luau executors podem expor)
-        local set_ok = false
-        if debug and type(debug.setupvalue) == "function" then
-            local success, _ = _U.pcall(function()
-                -- procura _ENV upvalue e substitui
-                for i = 1, 100 do
-                    local name = debug.getupvalue and debug.getupvalue(chunk, i)
-                    if not name then break end
-                end
-                -- tentativa genérica; alguns ambientes não permitem
-            end)
-            -- ignore resultado; main point: chunk will be executed
-        end
-
-        local ok, res1 = _U.pcall(chunk, ...)
-        if not ok then
-            error(res1)
-        end
-        return res1
-    end
-
-    -- se for função: não podemos garantir troca de _ENV em Luau em todas as implementações; chamamos de forma segura
-    if type(codeOrFn) == "function" then
-        local ok, res = _U.pcall(function() return codeOrFn(...) end)
-        if not ok then
-            error(res)
-        end
-        return res
-    end
-
-    error("KilluaLib.execute: expected string or function")
-end
-
-function Killua:protect(fn)
-    return protect_function(fn, "user_function")
-end
-
--- inicializar hooks
-install_hooks()
-
--- notificação inicial usando print original
-pcall(function()
-    _ORIGINAL.print(decrypt_string(_STRINGS.INIT_MSG))
-end)
-
-shared.__KILLUA_V5_INSTANCE = Killua
-return Killua
+return ASCIILib
