@@ -1,46 +1,105 @@
--- MorseLib.lua
--- Biblioteca para converter texto em Código Morse
+-- ASCIILib.lua
+-- Biblioteca simples para converter texto em ASCII (decimal/binário/hex)
+-- e enviar o resultado para um webhook (JSON, estilo Discord).
 
-local Morse = {
-	A = ".-";    B = "-...";  C = "-.-.";  D = "-..";
-	E = ".";     F = "..-.";  G = "--.";   H = "....";
-	I = "..";    J = ".---";  K = "-.-";   L = ".-..";
-	M = "--";    N = "-.";    O = "---";   P = ".--.";
-	Q = "--.-";  R = ".-.";   S = "...";   T = "-";
-	U = "..-";   V = "...-";  W = ".--";   X = "-..-";
-	Y = "-.--";  Z = "--..";
+local HttpService = game:GetService("HttpService")
 
-	["0"] = "-----"; ["1"] = ".----"; ["2"] = "..---";
-	["3"] = "...--"; ["4"] = "....-"; ["5"] = ".....";
-	["6"] = "-...."; ["7"] = "--..."; ["8"] = "---..";
-	["9"] = "----.";
-}
+local ASCIILib = {}
 
-local function charToMorse(ch)
-	if not ch then return "?" end
-	local up = string.upper(ch)
-	if up == " " then
-		return "/" -- separador de palavras
-	end
-	return Morse[up] or "?"
+-- converte um caractere para decimal ASCII
+local function charToDecimal(ch)
+	return string.byte(ch)
 end
 
-local function textToMorse(text)
+-- converte decimal para binário (string)
+local function decToBinary(num)
+	if num == 0 then return "0" end
+	local t = {}
+	while num > 0 do
+		table.insert(t, 1, tostring(num % 2))
+		num = math.floor(num / 2)
+	end
+	return table.concat(t)
+end
+
+-- converte decimal para hex (uppercase)
+local function decToHex(num)
+	return string.format("%X", num)
+end
+
+-- converte texto para uma tabela { {char=..., dec=..., bin=..., hex=...}, ... }
+function ASCIILib.textToASCIITable(text)
 	local out = {}
 	for i = 1, #text do
-		table.insert(out, charToMorse(text:sub(i, i)))
+		local ch = text:sub(i, i)
+		local dec = charToDecimal(ch) or 0
+		table.insert(out, {
+			char = ch,
+			dec = dec,
+			bin = decToBinary(dec),
+			hex = decToHex(dec),
+		})
 	end
-	return table.concat(out, " ")
+	return out
 end
 
-local function printMorse(text)
-	local morse = textToMorse(text)
-	print("Texto: " .. text)
-	print("Morse: " .. morse)
-	return morse
+-- formata a tabela num string de saída dependendo do modo: "decimal", "binary", "hex", "mixed"
+-- separator é o separador entre valores (default " ")
+function ASCIILib.formatASCII(text, mode, separator)
+	mode = (mode or "decimal"):lower()
+	separator = separator or " "
+	local tbl = ASCIILib.textToASCIITable(text)
+	local parts = {}
+
+	if mode == "decimal" then
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	elseif mode == "binary" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.bin) end
+	elseif mode == "hex" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.hex) end
+	elseif mode == "mixed" then
+		-- ex: "v:118 (0b1110110) (0x76)"
+		for _,item in ipairs(tbl) do
+			table.insert(parts, string.format("%s:%s (0b%s) (0x%s)", item.char, tostring(item.dec), item.bin, item.hex))
+		end
+	else
+		-- se modo não reconhecido, retorna decimal por padrão
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	end
+
+	return table.concat(parts, separator)
 end
 
-return {
-	TextToMorse = textToMorse,
-	PrintMorse = printMorse
-}
+-- envia para webhook. payloadOptions: {username=, avatar_url=, embeds= boolean}
+-- Se content for muito grande, corta para 1900 caracteres (segurança)
+function ASCIILib.sendWebhook(webhookUrl, content, payloadOptions)
+	if not webhookUrl or webhookUrl == "" then
+		return false, "webhookUrl vazio"
+	end
+	local opts = payloadOptions or {}
+	local data = {
+		content = content,
+		username = opts.username or "ASCIIBot",
+		avatar_url = opts.avatar_url,
+	}
+
+	-- corta content se estiver gigante (evita erro do Discord)
+	if type(data.content) == "string" and #data.content > 1900 then
+		data.content = data.content:sub(1, 1900) .. "...(truncated)"
+	end
+
+	local encoded = HttpService:JSONEncode(data)
+
+	local ok, err = pcall(function()
+		-- usa PostAsync: (url, body, contentType)
+		HttpService:PostAsync(webhookUrl, encoded, Enum.HttpContentType.ApplicationJson)
+	end)
+
+	if not ok then
+		return false, err
+	end
+
+	return true, "sent"
+end
+
+return ASCIILib
