@@ -1,0 +1,96 @@
+-- ASCIILib.lua (versão para executor com http_request)
+-- Biblioteca de conversão ASCII + envio webhook
+
+local ASCIILib = {}
+
+-- conversores
+local function charToDecimal(ch)
+	return string.byte(ch)
+end
+
+local function decToBinary(num)
+	if num == 0 then return "0" end
+	local t = {}
+	while num > 0 do
+		table.insert(t, 1, tostring(num % 2))
+		num = math.floor(num / 2)
+	end
+	return table.concat(t)
+end
+
+local function decToHex(num)
+	return string.format("%X", num)
+end
+
+function ASCIILib.textToASCIITable(text)
+	local out = {}
+	for i = 1, #text do
+		local ch = text:sub(i, i)
+		local dec = charToDecimal(ch) or 0
+		table.insert(out, {
+			char = ch,
+			dec = dec,
+			bin = decToBinary(dec),
+			hex = decToHex(dec),
+		})
+	end
+	return out
+end
+
+function ASCIILib.formatASCII(text, mode, separator)
+	mode = (mode or "decimal"):lower()
+	separator = separator or " "
+	local tbl = ASCIILib.textToASCIITable(text)
+	local parts = {}
+
+	if mode == "decimal" then
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	elseif mode == "binary" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.bin) end
+	elseif mode == "hex" then
+		for _,item in ipairs(tbl) do table.insert(parts, item.hex) end
+	elseif mode == "mixed" then
+		for _,item in ipairs(tbl) do
+			table.insert(parts, string.format("%s:%s (0b%s) (0x%s)", item.char, tostring(item.dec), item.bin, item.hex))
+		end
+	else
+		for _,item in ipairs(tbl) do table.insert(parts, tostring(item.dec)) end
+	end
+
+	return table.concat(parts, separator)
+end
+
+-- Envio de webhook (usando funções de exploit, não HttpService)
+function ASCIILib.sendWebhook(webhookUrl, content, payloadOptions)
+	local opts = payloadOptions or {}
+	local data = {
+		content = content,
+		username = opts.username or "ASCIIBot",
+		avatar_url = opts.avatar_url,
+	}
+
+	local encoded = game:GetService("HttpService"):JSONEncode(data)
+
+	-- tenta diferentes funções (dependendo do exploit)
+	local requestFunc = (syn and syn.request) or (http and http.request) or http_request or request
+	if not requestFunc then
+		return false, "Nenhuma função de request disponível neste executor"
+	end
+
+	local ok, res = pcall(function()
+		return requestFunc({
+			Url = webhookUrl,
+			Method = "POST",
+			Headers = { ["Content-Type"] = "application/json" },
+			Body = encoded
+		})
+	end)
+
+	if not ok then
+		return false, res
+	end
+
+	return true, res
+end
+
+return ASCIILib
