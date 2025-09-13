@@ -1,201 +1,46 @@
--- KilluaLib Ultimate v2.1 - Debug Fix
--- Sistema avançado de ofuscação e anti-detecção
+-- MorseLib.lua
+-- Biblioteca para converter texto em Código Morse
 
-local _,Killua=pcall(function()return{}end)
-if type(Killua)=="table"and Killua.Version then
-    return Killua 
-end
+local Morse = {
+	A = ".-";    B = "-...";  C = "-.-.";  D = "-..";
+	E = ".";     F = "..-.";  G = "--.";   H = "....";
+	I = "..";    J = ".---";  K = "-.-";   L = ".-..";
+	M = "--";    N = "-.";    O = "---";   P = ".--.";
+	Q = "--.-";  R = ".-.";   S = "...";   T = "-";
+	U = "..-";   V = "...-";  W = ".--";   X = "-..-";
+	Y = "-.--";  Z = "--..";
 
-Killua={
-    Version="2.1.0",
-    Build="ULTIMATE_DEBUG_FIX"
+	["0"] = "-----"; ["1"] = ".----"; ["2"] = "..---";
+	["3"] = "...--"; ["4"] = "....-"; ["5"] = ".....";
+	["6"] = "-...."; ["7"] = "--..."; ["8"] = "---..";
+	["9"] = "----.";
 }
 
--- Sistema de inicialização seguro
-local function SecureExecute(fn,...)
-    local env=getfenv(fn)
-    local new_env=setmetatable({},{
-        __index=function(_,k)
-            if k=="script"then return nil end
-            return env[k]
-        end,
-        __newindex=function()end
-    })
-    setfenv(fn,new_env)
-    return fn(...)
+local function charToMorse(ch)
+	if not ch then return "?" end
+	local up = string.upper(ch)
+	if up == " " then
+		return "/" -- separador de palavras
+	end
+	return Morse[up] or "?"
 end
 
--- Sistema de criptografia avançada
-local Crypto={}
-function Crypto.XOR(str,key)
-    local r={}
-    for i=1,#str do
-        r[i]=string.char(bit32.bxor(string.byte(str,i),key%(255)))
-        key=key+1
-    end
-    return table.concat(r)
+local function textToMorse(text)
+	local out = {}
+	for i = 1, #text do
+		table.insert(out, charToMorse(text:sub(i, i)))
+	end
+	return table.concat(out, " ")
 end
 
-function Crypto.Encrypt(data,key)
-    key=key or math.random(1,999999)
-    local encrypted=Crypto.XOR(tostring(data),key)
-    return {data=encrypted,key=key}
+local function printMorse(text)
+	local morse = textToMorse(text)
+	print("Texto: " .. text)
+	print("Morse: " .. morse)
+	return morse
 end
 
-function Crypto.Decrypt(encrypted)
-    if type(encrypted)~="table"or not encrypted.data or not encrypted.key then
-        return nil
-    end
-    return Crypto.XOR(encrypted.data,encrypted.key)
-end
-
--- Strings criptografadas
-local EncryptedStrings={
-    InitMsg=Crypto.Encrypt("KilluaLib Ultimate Initialized",0x7B),
-    Warning=Crypto.Encrypt("SecurityWarning",0x45),
-    DebugMsg=Crypto.Encrypt("DebuggerDetected",0x67)
+return {
+	TextToMorse = textToMorse,
+	PrintMorse = printMorse
 }
-
--- Sistema de detecção de ambiente
-local Detector={}
-function Detector.IsRoblox()
-    local success,_=pcall(function()
-        return game.Players.LocalPlayer~=nil
-    end)
-    return success
-end
-
-function Detector.IsExecutor()
-    -- Método menos invasivo para detectar executor
-    local success,_=pcall(function()
-        return getreg~=nil or getgc~=nil
-    end)
-    return success
-end
-
-function Detector.CheckDebug()
-    -- Método menos agressivo para detectar debug
-    local checks={
-        function()
-            local success,_=pcall(function()
-                return debug.getinfo(1)~=nil
-            end)
-            return success
-        end
-    }
-    
-    for i,check in ipairs(checks)do
-        local success,result=pcall(check)
-        if success and result then return true end
-    end
-    return false
-end
-
--- Sistema de ofuscação de código
-local Obfuscator={}
-function Obfuscator.RandomJunk()
-    local junkCode={
-        function()return math.random(1,100)*math.random(1,100)end,
-        function()return string.char(math.random(65,90))end,
-        function()return bit32.bxor(math.random(1,255),math.random(1,255))end
-    }
-    return junkCode[math.random(1,#junkCode)]()
-end
-
-function Obfuscator.ProtectFunction(fn)
-    return function(...)
-        Obfuscator.RandomJunk()
-        local args={...}
-        local result=fn(unpack(args))
-        Obfuscator.RandomJunk()
-        return result
-    end
-end
-
--- Sistema de hooks de segurança
-local Hooks={Originals={}}
-function Hooks.Install()
-    Hooks.Originals.print=print
-    Hooks.Originals.warn=warn
-    Hooks.Originals.error=error
-    
-    _G.print=function(...)
-        Obfuscator.RandomJunk()
-        local args={...}
-        Hooks.Originals.print(Crypto.Decrypt(EncryptedStrings.Warning),unpack(args))
-    end
-    
-    _G.warn=function(...)
-        Obfuscator.RandomJunk()
-        local args={...}
-        Hooks.Originals.warn(Crypto.Decrypt(EncryptedStrings.Warning),unpack(args))
-    end
-    
-    _G.error=function(...)
-        Obfuscator.RandomJunk()
-        local args={...}
-        Hooks.Originals.error(Crypto.Decrypt(EncryptedStrings.Warning),unpack(args))
-    end
-end
-
-function Hooks.Restore()
-    _G.print=Hooks.Originals.print
-    _G.warn=Hooks.Originals.warn
-    _G.error=Hooks.Originals.error
-end
-
--- API pública da KilluaLib
-function Killua.Encrypt(data,key)
-    return Crypto.Encrypt(data,key)
-end
-
-function Killua.Decrypt(encrypted)
-    return Crypto.Decrypt(encrypted)
-end
-
-function Killua.ExecuteSafe(fn,...)
-    return SecureExecute(fn,...)
-end
-
-function Killua.ProtectFunction(fn)
-    return Obfuscator.ProtectFunction(fn)
-end
-
-function Killua.GetEnvironment()
-    return{
-        IsRoblox=Detector.IsRoblox(),
-        IsExecutor=Detector.IsExecutor(),
-        DebuggerDetected=Detector.CheckDebug()
-    }
-end
-
-function Killua.AddDetection(testName,testFunction)
-    Detector[testName]=testFunction
-end
-
--- Inicialização automática
-SecureExecute(function()
-    Hooks.Install()
-    Obfuscator.RandomJunk()
-    
-    if Detector.IsRoblox()then
-        Hooks.Originals.print(Crypto.Decrypt(EncryptedStrings.InitMsg),"| Roblox Environment")
-    else
-        Hooks.Originals.print(Crypto.Decrypt(EncryptedStrings.InitMsg),"| Executor Environment")
-    end
-end)
-
--- Sistema de auto-atualização
-spawn(function()
-    while wait(300)do
-        pcall(function()
-            -- Simular verificação de versão sem realmente fazer requisições
-            local versionCheck=math.random(1,100)
-            if versionCheck>95 then
-                Hooks.Originals.print("KilluaLib: Performing security check...")
-            end
-        end)
-    end
-end)
-
-return Killua
